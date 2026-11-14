@@ -26,14 +26,20 @@ jobs:
           sudo docker image prune --all --force || true
           df -h
 
-      - name: Create 16GB Swap Space
+      - name: Setup ZRAM & Swap (Fast Memory Protection)
         run: |
+          sudo modprobe zram || true
+          if [ -e /sys/block/zram0/disksize ]; then
+            echo 12G | sudo tee /sys/block/zram0/disksize
+            sudo mkswap /dev/zram0
+            sudo swapon -p 100 /dev/zram0
+          fi
           sudo swapoff /swapfile || true
           sudo rm -f /swapfile
-          sudo fallocate -l 16G /swapfile
+          sudo fallocate -l 8G /swapfile
           sudo chmod 600 /swapfile
           sudo mkswap /swapfile
-          sudo swapon /swapfile
+          sudo swapon -p 10 /swapfile
           free -h
 
       - name: Install build dependencies
@@ -53,10 +59,11 @@ jobs:
           git config --global user.email "vinodarin@users.noreply.github.com"
           git config --global color.ui false
 
-      - name: Sync OrangeFox Manifest
+      - name: Sync OrangeFox Manifest (Latest Android 15/16 compatible)
         run: |
           mkdir -p ~/fox_sync
           cd ~/fox_sync
+          # Автоматически находим самую свежую ветку OrangeFox для актуальной версии Android
           BRANCH=$(git ls-remote --heads https://gitlab.com/OrangeFox/Manifest.git | awk -F'/' '{print $NF}' | grep -E '^fox_' | sort -V | tail -n 1)
           echo "Selected OrangeFox manifest branch: $BRANCH"
           repo init --depth=1 -u https://gitlab.com/OrangeFox/Manifest.git -b "$BRANCH"
@@ -69,11 +76,7 @@ jobs:
       - name: Build OrangeFox
         run: |
           cd ~/fox_sync
-          echo "=== Checking vendor structure ==="
-          find vendor/ -maxdepth 4 -name "*.mk" || true
-          
           COMMON_MK=$(find vendor/ -maxdepth 4 -name "common.mk" | head -n 1)
-          echo "Found common.mk at: $COMMON_MK"
           if [ -n "$COMMON_MK" ]; then
             sed -i "s|vendor/.*/common.mk|$COMMON_MK|g" device/xiaomi/songyuan/fox_songyuan.mk
           else
@@ -85,13 +88,11 @@ jobs:
           export OF_MAINTAINER="Vinodarin"
           export FOX_BUILD_TYPE="Unofficial"
           export LC_ALL="C"
+          # Ограничиваем сборщик мусора Go, чтобы soong_build не съедал всю память
+          export GOGC=40
+          
           source build/envsetup.sh
-          
-          echo "=== Available release configs ==="
-          ls -la build/release/aconfig/ || ls -la build/make/core/release_config* || true
-          
-          lunch fox_songyuan-ap2a-eng || lunch fox_songyuan-ap1a-eng || lunch fox_songyuan-bp1a-eng || lunch fox_songyuan-eng
-          # Ограничиваем потоки до 4 на этапе компиляции, чтобы беречь память вместе со swap
+          lunch fox_songyuan-eng
           mka -j4 recoveryimage
 
       - name: Prepare Release Artifacts
@@ -102,7 +103,6 @@ jobs:
             SUFFIX="b${{ github.run_number }}"
           fi
           
-          # Учитываем, что устройство использует отдельный раздел recovery.img
           SRC_IMG=$(find ~/fox_sync/out/target/product/songyuan/ -maxdepth 1 -name "recovery.img" | head -n 1)
           if [ -z "$SRC_IMG" ]; then
             SRC_IMG=$(find ~/fox_sync/out/target/product/songyuan/ -maxdepth 1 -name "boot.img" | head -n 1)
@@ -111,6 +111,9 @@ jobs:
           if [ -n "$SRC_IMG" ]; then
             FINAL_NAME="OrangeFox-11.1_beta-songyuan-${SUFFIX}-[Vinodarin]-Unofficial.img"
             cp "$SRC_IMG" ~/output/"$FINAL_NAME"
+          else
+            echo "Error: recovery image not found!"
+            exit 1
           fi
           
           ls -lh ~/output
