@@ -50,11 +50,26 @@ jobs:
       - name: Build OrangeFox
         run: |
           cd ~/fox_sync
+          echo "=== Checking vendor structure ==="
+          find vendor/ -maxdepth 4 -name "*.mk" || true
+          
+          COMMON_MK=$(find vendor/ -maxdepth 4 -name "common.mk" | head -n 1)
+          echo "Found common.mk at: $COMMON_MK"
+          if [ -n "$COMMON_MK" ]; then
+            sed -i "s|vendor/.*/common.mk|$COMMON_MK|g" device/xiaomi/songyuan/fox_songyuan.mk
+          else
+            sed -i "/common.mk/d" device/xiaomi/songyuan/fox_songyuan.mk
+          fi
+
           export ALLOW_MISSING_DEPENDENCIES=true
           export FOX_BUILD_DEVICE=songyuan
           export LC_ALL="C"
           source build/envsetup.sh
-          lunch fox_songyuan-ap2a-eng || lunch fox_songyuan-trunk_staging-eng || lunch fox_songyuan-eng
+          
+          echo "=== Available release configs ==="
+          ls -la build/release/aconfig/ || ls -la build/make/core/release_config* || true
+          
+          lunch fox_songyuan-ap2a-eng || lunch fox_songyuan-ap1a-eng || lunch fox_songyuan-bp1a-eng || lunch fox_songyuan-eng
           mka adbd bootimage
 
       - name: Prepare Release Artifacts
