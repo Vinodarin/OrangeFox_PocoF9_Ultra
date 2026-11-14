@@ -54,7 +54,7 @@ jobs:
           export FOX_BUILD_DEVICE=songyuan
           export LC_ALL="C"
           source build/envsetup.sh
-          lunch omni_songyuan-trunk_staging-eng || lunch fox_songyuan-trunk_staging-eng || lunch omni_songyuan-eng
+          lunch fox_songyuan-ap2a-eng || lunch fox_songyuan-trunk_staging-eng || lunch fox_songyuan-eng
           mka adbd bootimage
 
       - name: Prepare Release Artifacts
