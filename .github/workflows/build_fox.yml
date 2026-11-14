@@ -2,13 +2,22 @@ name: Build OrangeFox Recovery
 
 on:
   workflow_dispatch:
+    inputs:
+      build_suffix:
+        description: 'Суффикс версии (например: v1 или fix-touch). Оставь пустым для авто-нумерации:'
+        required: false
+        default: ''
+      changelog:
+        description: 'Список изменений (Changelog) для релиза на 4PDA/GitHub:'
+        required: false
+        default: 'Первая успешная неофициальная сборка OrangeFox для Poco F9 Ultra (songyuan).'
 
 permissions:
   contents: write
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Free up disk space
@@ -16,6 +25,14 @@ jobs:
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
           sudo docker image prune --all --force || true
           df -h
+
+      - name: Create 16GB Swap Space
+        run: |
+          sudo fallocate -l 16G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          free -h
 
       - name: Install build dependencies
         run: |
@@ -41,7 +58,7 @@ jobs:
           BRANCH=$(git ls-remote --heads https://gitlab.com/OrangeFox/Manifest.git | awk -F'/' '{print $NF}' | grep -E '^fox_' | sort -V | tail -n 1)
           echo "Selected OrangeFox manifest branch: $BRANCH"
           repo init --depth=1 -u https://gitlab.com/OrangeFox/Manifest.git -b "$BRANCH"
-          repo sync -c -j$(nproc --all) --force-sync --no-clone-bundle --no-tags
+          repo sync -c -j8 --force-sync --no-clone-bundle --no-tags
 
       - name: Clone Device Tree
         run: |
@@ -63,6 +80,8 @@ jobs:
 
           export ALLOW_MISSING_DEPENDENCIES=true
           export FOX_BUILD_DEVICE=songyuan
+          export OF_MAINTAINER="Vinodarin"
+          export FOX_BUILD_TYPE="Unofficial"
           export LC_ALL="C"
           source build/envsetup.sh
           
@@ -70,19 +89,42 @@ jobs:
           ls -la build/release/aconfig/ || ls -la build/make/core/release_config* || true
           
           lunch fox_songyuan-ap2a-eng || lunch fox_songyuan-ap1a-eng || lunch fox_songyuan-bp1a-eng || lunch fox_songyuan-eng
-          mka adbd bootimage
+          # Ограничиваем потоки до 4 на этапе компиляции, чтобы беречь память вместе со swap
+          mka -j4 recoveryimage
 
       - name: Prepare Release Artifacts
         run: |
           mkdir -p ~/output
-          cp ~/fox_sync/out/target/product/songyuan/OrangeFox*.zip ~/output/ || true
-          cp ~/fox_sync/out/target/product/songyuan/OrangeFox*.img ~/output/ || true
-          cp ~/fox_sync/out/target/product/songyuan/boot.img ~/output/OrangeFox-R11.1-Unofficial-songyuan.img || true
+          SUFFIX="${{ github.event.inputs.build_suffix }}"
+          if [ -z "$SUFFIX" ]; then
+            SUFFIX="b${{ github.run_number }}"
+          fi
+          
+          # Учитываем, что устройство использует отдельный раздел recovery.img
+          SRC_IMG=$(find ~/fox_sync/out/target/product/songyuan/ -maxdepth 1 -name "recovery.img" | head -n 1)
+          if [ -z "$SRC_IMG" ]; then
+            SRC_IMG=$(find ~/fox_sync/out/target/product/songyuan/ -maxdepth 1 -name "boot.img" | head -n 1)
+          fi
+          
+          if [ -n "$SRC_IMG" ]; then
+            FINAL_NAME="OrangeFox-11.1_beta-songyuan-${SUFFIX}-[Vinodarin]-Unofficial.img"
+            cp "$SRC_IMG" ~/output/"$FINAL_NAME"
+          fi
+          
           ls -lh ~/output
+          echo "FINAL_TAG=v11.1-${SUFFIX}" >> $GITHUB_ENV
 
       - name: Upload to GitHub Releases
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: build-${{ github.run_number }}
-          name: OrangeFox Unofficial for Poco F9 Ultra (${{ github.run_number }})
+          tag_name: ${{ env.FINAL_TAG }}
+          name: "OrangeFox R11.1 Unofficial for Poco F9 Ultra (${{ env.FINAL_TAG }})"
+          body: |
+            ### 🦊 OrangeFox Recovery Unofficial
+            * **Устройство:** Poco F9 Ultra (`songyuan`)
+            * **Мейнтейнер:** Vinodarin
+            * **Статус:** Unofficial
+            
+            ### 📝 Список изменений (Changelog):
+            ${{ github.event.inputs.changelog }}
           files: ~/output/*
