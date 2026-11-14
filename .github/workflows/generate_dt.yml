@@ -1,0 +1,43 @@
+name: Generate Device Tree from TWRP
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies and twrpdtgen
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cpio unzip wget curl jq python3-pip
+          pip3 install twrpdtgen
+
+      - name: Download TWRP.img from Yandex Disk
+        run: |
+          YADISK_URL="https://disk.yandex.ru/d/hB3eTKpjkx2UuQ"
+          DOWNLOAD_URL=$(curl -s "https://cloud-api.yandex.net/v1/disk/public/resources/download?public_key=$YADISK_URL" | jq -r '.href')
+          wget -O TWRP.img "$DOWNLOAD_URL"
+          ls -lh TWRP.img
+
+      - name: Generate Device Tree
+        run: |
+          python3 -m twrpdtgen TWRP.img -o dt_output
+          cp -r dt_output/xiaomi/songyuan/* .
+          rm -rf dt_output TWRP.img
+
+      - name: Commit and push generated Device Tree
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "songyuan: Initial device tree from working TWRP"
+          git push
+          
