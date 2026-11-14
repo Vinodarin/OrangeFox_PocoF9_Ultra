@@ -11,4 +11,6 @@ PRODUCT_MAKEFILES := \
 COMMON_LUNCH_CHOICES := \
     fox_songyuan-user \
     fox_songyuan-userdebug \
-    fox_songyuan-eng
+    fox_songyuan-eng \
+    fox_songyuan-ap2a-eng \
+    fox_songyuan-trunk_staging-eng
