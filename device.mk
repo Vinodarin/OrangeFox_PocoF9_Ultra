@@ -26,4 +26,7 @@ PRODUCT_PACKAGES += \
     cppreopts.sh \
     update_engine \
     update_verifier \
-    update_engine_sideload
+    update_engine_sideload \
+    bootctl \
+    simg2img \
+    fastbootd
